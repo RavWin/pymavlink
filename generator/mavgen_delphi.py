@@ -62,9 +62,9 @@ unit mavlink_crcs;
 
 interface
 
-const
-  MAVLINK_MESSAGE_CRCS: array[0..255] of byte = 
-  (${message_crcs_array});
+//const
+//  MAVLINK_MESSAGE_CRCS: array[0..255] of byte = 
+//  (${message_crcs_array});
 
 implementation
 
@@ -82,15 +82,17 @@ def generate_main_pas(directory, xml):
  *)
 unit mavlink_${basename};
 interface
-
+uses 
+	mavlink;
 // MESSAGE LENGTHS AND CRCS
 
 const
-//	MAVLINK_MESSAGE_LENGTHS = (${message_lengths_array});
-//	MAVLINK_MESSAGE_CRCS = (${message_crcs_array});
+	MAVLINK_MESSAGE_CRCS: TCrcArray = 
+	(${message_crcs_array});
+	MAVLINK_MESSAGE_LENGTHS: TCrcArray = 
+	(${message_lengths_array});
 
 {$define MAVLINK_ENABLED_${basename_upper}}
-// MAVLINK VERSION
 	MAVLINK_VERSION = ${version};
 
 // MESSAGE DEFINITIONS
@@ -537,7 +539,7 @@ def generate(basename, xml_list):
         crclist += '%u, ' % crc			
     # crclist = crclist[:-2]# xml.message_crcs_array = message_crcs;
     xml.message_crcs_array = crclist[:-2]
-    generate_mavlink_crcs(basename, xml)
+    #generate_mavlink_crcs(basename, xml)
     # print(xml.message_crcs_array)# crc = 0#xml.message_crcs[msgid]
     # print(crclist)# crc = 0#xml.message_crcs[msgid]
     generate_version_pas(basename, xml)
