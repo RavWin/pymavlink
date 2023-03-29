@@ -15,13 +15,12 @@ from builtins import object
 import os
 import re
 import sys
-from . import mavparse
 
 # XSD schema file
 schemaFile = os.path.join(os.path.dirname(os.path.realpath(__file__)), "mavschema.xsd")
 
 # Set defaults for generating MAVLink code
-DEFAULT_WIRE_PROTOCOL = mavparse.PROTOCOL_1_0
+DEFAULT_WIRE_PROTOCOL = "1.0"
 DEFAULT_LANGUAGE = 'Python'
 DEFAULT_ERROR_LIMIT = 200
 DEFAULT_VALIDATE = True
@@ -35,6 +34,11 @@ def mavgen(opts, args):
     and args where args are a list of xml files. This function allows python
     scripts under Windows to control mavgen using the same interface as
     shell scripts under Unix"""
+
+    if opts.language.lower() == 'delphi':
+        from . import mavparse_delphi as mavparse
+    else:
+        from . import mavparse
 
     xml = []
 

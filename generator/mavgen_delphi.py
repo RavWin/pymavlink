@@ -12,7 +12,7 @@ from builtins import range
 from builtins import object
 
 import os
-from . import mavparse, mavtemplate
+from . import mavparse_delphi, mavtemplate
 
 t = mavtemplate.MAVTemplate()
 
@@ -363,7 +363,7 @@ def generate_one(basename, xml):
     directory = basename#os.path.join(basename, xml.basename)
 
     print("Generating Delphi implementation in directory %s" % directory)
-    mavparse.mkdir_p(directory)
+    mavparse_delphi.mkdir_p(directory)
 
     if xml.little_endian:
         xml.mavlink_endian = "MAVLINK_LITTLE_ENDIAN"
