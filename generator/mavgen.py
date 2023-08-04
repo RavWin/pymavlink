@@ -21,9 +21,10 @@ schemaFile = os.path.join(os.path.dirname(os.path.realpath(__file__)), "mavschem
 
 # Set defaults for generating MAVLink code
 DEFAULT_WIRE_PROTOCOL = "1.0"
-DEFAULT_LANGUAGE = 'Python'
+DEFAULT_LANGUAGE = 'Delphi'
 DEFAULT_ERROR_LIMIT = 200
 DEFAULT_VALIDATE = True
+DEFAULT_STRICT_UNITS = False
 
 # List the supported languages. This is done globally because it's used by the GUI wrapper too
 supportedLanguages = ["C", "CS", "JavaScript", "Python", "WLua", "ObjC", "Swift", "Java", "C++11", "Delphi"]
