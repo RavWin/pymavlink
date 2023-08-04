@@ -10,8 +10,8 @@ const
 
   MAVLINK_MAX_PAYLOAD_LEN= 255;
   MAVLINK_NUM_CHECKSUM_BYTES=2;
-  MAVLINK_CORE_HEADER_LEN= 5; ///< Length of core header (of the comm. layer): message length (1 byte) + message sequence (1 byte) + message system id (1 byte) + message component id (1 byte) + message type id (1 byte)
-  MAVLINK_NUM_HEADER_BYTES =(MAVLINK_CORE_HEADER_LEN + 1); ///< Length of all header bytes, including core and checksum
+  MAVLINK_CORE_HEADER_LEN= 5; 		///< Length of core header (of the comm. layer): message length (1 byte) + message sequence (1 byte) + message system id (1 byte) + message component id (1 byte) + message type id (1 byte)
+  MAVLINK_NUM_HEADER_BYTES = (MAVLINK_CORE_HEADER_LEN + 1); ///< Length of all header bytes, including core and checksum
   MAVLINK_NUM_NON_PAYLOAD_BYTES =(MAVLINK_NUM_HEADER_BYTES + MAVLINK_NUM_CHECKSUM_BYTES);
 
   MAVLINK_BIG_ENDIAN    = 0;
@@ -72,10 +72,10 @@ type
   );
 
   mavlink_status_t=packed record
-      msg_received : mavlink_framing_t;               ///< Number of received messages
+      msg_received : mavlink_framing_t;   ///< Number of received messages
       buffer_overrun : UInt8;             ///< Number of buffer overruns
       parse_error : UInt8;                ///< Number of parse errors
-      parse_state: mavlink_parse_state_t;  ///< Parsing state machine
+      parse_state: mavlink_parse_state_t; ///< Parsing state machine
       packet_idx : UInt8;                 ///< Index in current packet
       current_rx_seq : UInt8;             ///< Sequence number of last packet received
       current_tx_seq : UInt8;             ///< Sequence number of last packet sent
@@ -136,6 +136,83 @@ uses
 
 var
   m_mavlink_txseq: array[0..MAVLINK_COMM_NUM_BUFFERS-1] of UInt8;
+
+(**
+ * @brief Pack a message to send it over a serial byte stream
+ *)
+
+function mavlink_finalize_message_chan(var msg: mavlink_message_t; system_id: uint8; component_id: uint8; chan: uint8; min_length: uint8; length: uint8; crc_extra: uint8): UInt16;
+begin
+	// This code part is the same for all messages;
+	msg.magic := MAVLINK_STX;
+	msg.len := length;
+	msg.sysid := system_id;
+	msg.compid := component_id;
+	// One sequence number per channel
+	msg.seq := m_mavlink_txseq[chan];
+	m_mavlink_txseq[chan] := m_mavlink_txseq[chan] + 1;
+	msg.checksum := crc_calculate(PByteArray(@msg.len), MAVLINK_CORE_HEADER_LEN);
+	crc_accumulate_buffer(msg.checksum, @msg.payload, msg.len);
+	// MAVLINK_CRC_EXTRA
+	crc_accumulate(crc_extra, &msg.checksum);
+	// checksum is immediately after the payload bytes
+	msg.payload[msg.len] := (msg.checksum and $FF);
+	msg.payload[msg.len + 1] := (msg.checksum shr 8);
+
+	Result := length + MAVLINK_NUM_NON_PAYLOAD_BYTES;
+end;
+
+function mavlink_finalize_message(var msg: mavlink_message_t; system_id: uint8; component_id: uint8; min_length: uint8; length: uint8; crc_extra: uint8): uint16;
+begin
+  Result := mavlink_finalize_message_chan(msg, system_id, component_id, Ord(MAVLINK_COMM_0), min_length, length, crc_extra);
+end;
+
+(*
+  like memcpy(), but if src is NULL, do a memset to zero
+*)
+procedure mav_array_memcpy(const src; var dest; n: Integer);
+begin
+  if (SizeOf(src) = 0) then
+  begin
+    FillChar(dest, n, 0);
+  end
+  else
+  begin
+    move(src, dest, n);
+  end;
+end;
+
+procedure crc_accumulate(data : Uint8; var crcAccum : UInt16);
+var tmp : UInt8;
+begin
+	//Accumulate one byte of data into the CRC
+	tmp := data xor (crcAccum and $ff);
+	tmp := tmp xor (tmp shl 4);
+	crcAccum := (crcAccum shr 8) xor (tmp shl 8) xor (tmp shl 3) xor (tmp shr 4);
+end;
+
+procedure crc_init(var crcAccum : UInt16);
+begin
+        crcAccum := X25_INIT_CRC;
+end;
+
+function crc_calculate(pBuffer : PByteArray; length : Uint16) : Uint16;
+var crcTmp : UInt16;
+  I: Integer;
+begin
+	crc_init(crcTmp);
+	for I := 0 to length - 1 do
+		crc_accumulate(pBuffer[I], crcTmp);
+	Result := crcTmp;
+end;
+
+procedure crc_accumulate_buffer(var crcAccum : UInt16; pBuffer : PByteArray; length : UInt16);
+var
+  I: Integer;
+begin
+    for I := 0 to length - 1 do
+		crc_accumulate(pBuffer[I], crcAccum);
+end;
 
 (**
  * @brief Put a bitfield of length 1-32 bit into the buffer
@@ -238,119 +315,27 @@ begin
 //	return i_byte_index - packet_index;
 end;
 
-(**
- * @brief Pack a message to send it over a serial byte stream
- *)
-
-function mavlink_finalize_message_chan(var msg: mavlink_message_t; system_id: uint8; component_id: uint8; chan: uint8; min_length: uint8; length: uint8; crc_extra: uint8): UInt16;
-begin
-	// This code part is the same for all messages;
-  msg.magic := MAVLINK_STX;
-  msg.len := length;
-  msg.sysid := system_id;
-  msg.compid := component_id;
-	// One sequence number per channel
-  msg.seq := m_mavlink_txseq[chan];
-  m_mavlink_txseq[chan] := m_mavlink_txseq[chan] + 1;
-  msg.checksum := crc_calculate(PByteArray(@msg.len), MAVLINK_CORE_HEADER_LEN);
-  crc_accumulate_buffer(msg.checksum, @msg.payload, msg.len);
-//#if MAVLINK_CRC_EXTRA
-	crc_accumulate(crc_extra, &msg.checksum);
-//#endif
-  // checksum is immediately after the payload bytes
-//	mavlink_ck_a(msg) = (uint8_t)(msg.checksum & 0xFF);
-//	mavlink_ck_b(msg) = (uint8_t)(msg.checksum >> 8);
-  msg.payload[msg.len] := (msg.checksum and $FF);
-  msg.payload[msg.len + 1] := (msg.checksum shr 8);
-
-  Result := length + MAVLINK_NUM_NON_PAYLOAD_BYTES;
-end;
-
-function mavlink_finalize_message(var msg: mavlink_message_t; system_id: uint8; component_id: uint8; min_length: uint8; length: uint8; crc_extra: uint8): uint16;
-begin
-  Result := mavlink_finalize_message_chan(msg, system_id, component_id, Ord(MAVLINK_COMM_0), min_length, length, crc_extra);
-end;
-
-(*
-  like memcpy(), but if src is NULL, do a memset to zero
-*)
-procedure mav_array_memcpy(const src; var dest; n: Integer);
-begin
-  if (SizeOf(src) = 0) then
-  begin
-    FillChar(dest, n, 0);
-  end
-  else
-  begin
-    move(src, dest, n);
-  end;
-end;
-
-//function mavlink_msg_get_send_buffer_length(msg: mavlink_message_t): uint16;
-//begin
-//	Result :=msg.len + MAVLINK_NUM_NON_PAYLOAD_BYTES;
-//end;
-
-procedure crc_accumulate(data : Uint8; var crcAccum : UInt16);
-var tmp : UInt8;
-begin
-        //Accumulate one byte of data into the CRC
-
-        tmp := data xor (crcAccum and $ff);
-        tmp := tmp xor (tmp shl 4);
-        crcAccum := (crcAccum shr 8) xor (tmp shl 8) xor (tmp shl 3) xor (tmp shr 4);
-end;
-
-procedure crc_init(var crcAccum : UInt16);
-begin
-        crcAccum := X25_INIT_CRC;
-end;
-
-function crc_calculate(pBuffer : PByteArray; length : Uint16) : Uint16;
-var crcTmp : UInt16;
-  I: Integer;
-begin
-        crc_init(crcTmp);
-        for I := 0 to length - 1 do
-            crc_accumulate(pBuffer[I], crcTmp);
-        Result := crcTmp;
-end;
-
-procedure crc_accumulate_buffer(var crcAccum : UInt16; pBuffer : PByteArray; length : UInt16);
-var
-  I: Integer;
-begin
-     for I := 0 to length - 1 do
-        crc_accumulate(pBuffer[I], crcAccum);
-end;
-
-
 { TMavlinkParser }
 
 function TMavlinkParser.finalizeMessage(system_id, component_id, min_length, length, crc_extra: uint8): UInt16;
 begin
 	// This code part is the same for all messages;
-  rxmsg.magic := MAVLINK_STX;
-  rxmsg.len := length;
-  rxmsg.sysid := system_id;
-  rxmsg.compid := component_id;
+	rxmsg.magic := MAVLINK_STX;
+	rxmsg.len := length;
+	rxmsg.sysid := system_id;
+	rxmsg.compid := component_id;
 	// One sequence number per channel
-  rxmsg.seq := status.current_tx_seq;
-  status.current_tx_seq := status.current_tx_seq + 1;
-//	msg.checksum := crc_calculate(((const uint8_t*)(msg)) + 3, MAVLINK_CORE_HEADER_LEN);
-//	crc_accumulate_buffer(&msg.checksum, _MAV_PAYLOAD(msg), msg.len);
-  rxmsg.checksum := crc_calculate(PByteArray(@rxmsg.len), MAVLINK_CORE_HEADER_LEN);
-  crc_accumulate_buffer(rxmsg.checksum, @rxmsg.payload, rxmsg.len);
-//#if MAVLINK_CRC_EXTRA
+	rxmsg.seq := status.current_tx_seq;
+	status.current_tx_seq := status.current_tx_seq + 1;
+	rxmsg.checksum := crc_calculate(PByteArray(@rxmsg.len), MAVLINK_CORE_HEADER_LEN);
+	crc_accumulate_buffer(rxmsg.checksum, @rxmsg.payload, rxmsg.len);
+	// MAVLINK_CRC_EXTRA
 	crc_accumulate(crc_extra, &rxmsg.checksum);
-//#endif
-  // checksum is immediately after the payload bytes
-//	mavlink_ck_a(msg) = (uint8_t)(msg.checksum & 0xFF);
-//	mavlink_ck_b(msg) = (uint8_t)(msg.checksum >> 8);
-  rxmsg.payload[rxmsg.len] := (rxmsg.checksum and $FF);
-  rxmsg.payload[rxmsg.len + 1] := (rxmsg.checksum shr 8);
+	// checksum is immediately after the payload bytes
+	rxmsg.payload[rxmsg.len] := (rxmsg.checksum and $FF);
+	rxmsg.payload[rxmsg.len + 1] := (rxmsg.checksum shr 8);
 
-  Result := length + MAVLINK_NUM_NON_PAYLOAD_BYTES;
+	Result := length + MAVLINK_NUM_NON_PAYLOAD_BYTES;
 end;
 
 function TMavlinkParser.frameCharBuffer(var c: uint8): mavlink_framing_t;
@@ -414,14 +399,14 @@ begin
 
     MAVLINK_PARSE_STATE_GOT_COMPID:
       begin
-  //#ifdef MAVLINK_CHECK_MESSAGE_LENGTH
-  //	        if (rxmsg.len != MAVLINK_MESSAGE_LENGTH(c))
-  //		{
-  //			status.parse_error++;
-  //			status.parse_state := MAVLINK_PARSE_STATE_IDLE;
-  //			break;
-  //	    }
-  //#endif
+	//#ifdef MAVLINK_CHECK_MESSAGE_LENGTH
+	//	        if (rxmsg.len != MAVLINK_MESSAGE_LENGTH(c))
+	//		{
+	//			status.parse_error++;
+	//			status.parse_state := MAVLINK_PARSE_STATE_IDLE;
+	//			break;
+	//	    }
+	//#endif
         rxmsg.msgid := c;
         updateChecksum(c);
         if (rxmsg.len = 0) then
@@ -447,9 +432,8 @@ begin
 
     MAVLINK_PARSE_STATE_GOT_PAYLOAD:
       begin
-  //#if MAVLINK_CRC_EXTRA
+		// MAVLINK_CRC_EXTRA
         updateChecksum(fCRCS[rxmsg.msgid]);
-  //#endif
         if (c <> (rxmsg.checksum and $FF)) then
         begin
           status.parse_state := MAVLINK_PARSE_STATE_GOT_BAD_CRC1;
@@ -465,13 +449,13 @@ begin
       begin
         if ((status.parse_state = MAVLINK_PARSE_STATE_GOT_BAD_CRC1) or (c <> (rxmsg.checksum shr 8))) then
         begin
-        // got a bad CRC message
-          status.msg_received := MAVLINK_FRAMING_BAD_CRC;
+			// got a bad CRC message
+			status.msg_received := MAVLINK_FRAMING_BAD_CRC;
         end
         else
         begin
-        // Successfully got message
-          status.msg_received := MAVLINK_FRAMING_OK;
+			// Successfully got message
+			status.msg_received := MAVLINK_FRAMING_OK;
         end;
         status.parse_state := MAVLINK_PARSE_STATE_IDLE;
         rxmsg.payload[status.packet_idx + 1] := c;
@@ -479,19 +463,13 @@ begin
       end;
   end;
 
-//  Inc(bufferIndex);
 	// If a message has been sucessfully decoded, check index
   if (status.msg_received = MAVLINK_FRAMING_OK) then
   begin
-		//while(status.current_seq != rxmsg.seq)
-		//{
-		//	status.packet_rx_drop_count++;
-		//               status.current_seq++;
-		//}
     status.current_rx_seq := rxmsg.seq;
-		// Initial condition: If no packet has been received so far, drop count is undefined
-    if (status.packet_rx_success_count = 0) then
-      status.packet_rx_drop_count := 0;
+	// Initial condition: If no packet has been received so far, drop count is undefined
+	if (status.packet_rx_success_count = 0) then
+		status.packet_rx_drop_count := 0;
 		// Count this packet as received
     Inc(status.packet_rx_success_count);
   end;
@@ -502,13 +480,13 @@ begin
 
   if (status.msg_received = MAVLINK_FRAMING_BAD_CRC) then
   begin
-		(*
-		  the CRC came out wrong. We now need to overwrite the
-		  msg CRC with the one on the wire so that if the
-		  caller decides to forward the message anyway that
-		  mavlink_msg_to_send_buffer() won't overwrite the
-		  checksum
-		 *)
+	(*
+	  the CRC came out wrong. We now need to overwrite the
+	  msg CRC with the one on the wire so that if the
+	  caller decides to forward the message anyway that
+	  mavlink_msg_to_send_buffer() won't overwrite the
+	  checksum
+	 *)
     rxmsg.checksum := rxmsg.payload[status.packet_idx] or (rxmsg.payload[status.packet_idx + 1] shl 8);
   end;
 
@@ -553,10 +531,6 @@ begin
   if (msg_received = MAVLINK_FRAMING_BAD_CRC) then
   begin
     // we got a bad CRC. Treat as a parse failure
-//     rxmsg := mavlink_get_channel_buffer(chan);
-//    status := mavlink_get_channel_status(chan);
-//    rxmsg := m_mavlink_buffer[chan];
-//    status := @m_mavlink_status[chan];
     Inc(status.parse_error);
     status.msg_received := MAVLINK_FRAMING_INCOMPLETE;
     status.parse_state := MAVLINK_PARSE_STATE_IDLE;
@@ -574,7 +548,6 @@ end;
 
 procedure TMavlinkParser.resetState;
 begin
-//  m_mavlink_status[chan].parse_state := MAVLINK_PARSE_STATE_IDLE;
   status.parse_state := MAVLINK_PARSE_STATE_IDLE;
 end;
 
