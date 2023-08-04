@@ -12,7 +12,7 @@ from builtins import range
 from builtins import object
 
 import os
-from . import mavparse_delphi, mavtemplate
+from . import mavparse_delphi as mavparse, mavtemplate
 
 t = mavtemplate.MAVTemplate()
 
@@ -125,7 +125,7 @@ def generate_message_pas(directory, m):
     f = open(os.path.join(directory, 'mavlink_msg_%s.pas' % m.name_lower), mode='w')
     t.write(f, '''
 unit mavlink_msg_${name_lower};
-// MESSAGE ${name} PACKING
+// ${name} MESSAGE
 interface
 uses 
 	mavlink, SysUtils;
@@ -135,7 +135,7 @@ const MAVLINK_MSG_ID_${name} = ${id};
 type
 
 mavlink_${name_lower}_t = packed record
-${{ordered_fields: ${name}${array_suffix} ${type}; (*< ${description}*)
+${{ordered_fields:    ${name}${array_suffix} ${type}; (*< ${description}*)
 }}
 end;
 
@@ -150,38 +150,29 @@ const
 
 ${{array_fields:MAVLINK_MSG_${msg_name}_FIELD_${name_upper}_LEN = ${array_length};
 }}
-
 (*
-{$if MAVLINK_COMMAND_24BIT
 #define MAVLINK_MESSAGE_INFO_${name} { \\
     ${id}, \\
     "${name}", \\
     ${num_fields}, \\
     { ${{ordered_fields: { "${name}", ${c_print_format}, MAVLINK_TYPE_${type_upper}, ${array_length}, ${wire_offset}, offsetof(mavlink_${name_lower}_t, ${name}) }, \\
-        }} } \\
+      }}
+    } \\
 }
-{$ELSE}
-#define MAVLINK_MESSAGE_INFO_${name} { \\
-    "${name}", \\
-    ${num_fields}, \\
-    { ${{ordered_fields: { "${name}", ${c_print_format}, MAVLINK_TYPE_${type_upper}, ${array_length}, ${wire_offset}, offsetof(mavlink_${name_lower}_t, ${name}) }, \\
-        }} } \\
-}
-{$IFEND}
 *)
 
-function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; var msg: mavlink_message_t ${{arg_fields:; ${array_prefix}${name}:${array_const} }}):uint16;
+function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; var msg: mavlink_message_t${{arg_fields:; 
+                                    ${array_prefix}${name}:${array_const}}}):uint16;
 function mavlink_msg_${name_lower}_pack_chan(system_id: uint8_t; component_id: uint8_t; 
 									chan: uint8_t;
-									msg: mavlink_message_t ${{arg_fields:; ${array_prefix}${name}:${array_const} }}):uint16;
+									msg: mavlink_message_t${{arg_fields:; 
+									${array_prefix}${name}:${array_const}}}):uint16;
 function mavlink_msg_${name_lower}_encode(system_id: uint8_t; component_id: uint8_t; 
 									msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 function mavlink_msg_${name_lower}_encode_chan(system_id: uint8_t; component_id: uint8_t; 
 									chan: uint8;
 									msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 procedure mavlink_msg_${name_lower}_decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t); inline;
-(*${{fields:function mavlink_msg_${name_lower}_get_${name}(msg${get_arg}: mavlink_message_t): ${return_type}; inline;
-}}*)
 
 implementation
 
@@ -195,7 +186,8 @@ ${{arg_fields: * @param ${name} ${description}
 }}
  * @return length of the message in bytes (excluding serial stream start sign)
  *)
-function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; var msg: mavlink_message_t ${{arg_fields:; ${array_prefix}${name}:${array_const} }}):uint16;
+function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; var msg: mavlink_message_t${{arg_fields:; 
+                                    ${array_prefix}${name}:${array_const}}}):uint16;
 var
 	packet: mavlink_${name_lower}_t;
 begin
@@ -223,31 +215,21 @@ ${{arg_fields: * @param ${name} ${description}
  *)
 function mavlink_msg_${name_lower}_pack_chan(system_id: uint8_t; component_id: uint8_t; 
 									chan: uint8_t;
-									msg: mavlink_message_t ${{arg_fields:; ${array_prefix}${name}:${array_const} }}):uint16;
+									msg: mavlink_message_t${{arg_fields:; 
+									${array_prefix}${name}:${array_const}}}):uint16;
 var
 	packet: mavlink_${name_lower}_t;
 begin
-(*
-{$if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
-    char buf[MAVLINK_MSG_ID_${name}_LEN];
-${{scalar_fields:    _mav_put_${type}(buf, ${wire_offset}, ${putname});
-}}
-${{array_fields:    _mav_put_${type}_array(buf, ${wire_offset}, ${name}, ${array_length});
-}}
-        memcpy(_MAV_PAYLOAD_NON_CONST(msg), buf, MAVLINK_MSG_ID_${name}_LEN);
-{$ELSE}
-*)
-//    mavlink_${name_lower}_t packet;
+    // mavlink_${name_lower}_t packet;
 ${{scalar_fields:    packet.${name} := ${putname};
 }}
 ${{array_fields:    move(${name}, packet.${name}, sizeof(${type})*${array_length});
 }}
-        move(packet, msg.payload[0], MAVLINK_MSG_ID_${name}_LEN);
-//        memcpy(_MAV_PAYLOAD_NON_CONST(msg), &packet, MAVLINK_MSG_ID_${name}_LEN);
-//{$IFEND}
+    move(packet, msg.payload[0], MAVLINK_MSG_ID_${name}_LEN);
 
     msg.msgid := MAVLINK_MSG_ID_${name};
-    Result := mavlink_finalize_message_chan(msg, system_id, component_id, chan, MAVLINK_MSG_ID_${name}_MIN_LEN, MAVLINK_MSG_ID_${name}_LEN, MAVLINK_MSG_ID_${name}_CRC);
+    Result := mavlink_finalize_message_chan(msg, system_id, component_id, chan, 
+        MAVLINK_MSG_ID_${name}_MIN_LEN, MAVLINK_MSG_ID_${name}_LEN, MAVLINK_MSG_ID_${name}_CRC);
 end;
 
 (**
@@ -261,7 +243,8 @@ end;
 function mavlink_msg_${name_lower}_encode(system_id: uint8_t; component_id: uint8_t; 
 									msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 begin
-    Result := mavlink_msg_${name_lower}_pack(system_id, component_id, msg,${{arg_fields: ${name_lower}.${name},}});
+    Result := mavlink_msg_${name_lower}_pack(system_id, component_id, msg,${{arg_fields: 
+        ${name_lower}.${name},}});
 end;
 
 (**
@@ -277,32 +260,11 @@ function mavlink_msg_${name_lower}_encode_chan(system_id: uint8_t; component_id:
 									chan: uint8;
 									msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 begin
-    Result := mavlink_msg_${name_lower}_pack_chan(system_id, component_id, chan, msg,${{arg_fields: ${name_lower}.${name},}});
+    Result := mavlink_msg_${name_lower}_pack_chan(system_id, component_id, chan, msg,${{arg_fields: 
+        ${name_lower}.${name},}});
 end;
-
-(**
- * @brief Send a ${name_lower} message
- * @param chan MAVLink channel to send the message
- *
-${{arg_fields: * @param ${name} ${description}
-}}
- *)
 
 // MESSAGE ${name} UNPACKING
-
-${{fields:
-(**
- * @brief Get field ${name} from ${name_lower} message
- *
- * @return ${description}
- *)
-(*
-function mavlink_msg_${name_lower}_get_${name}(msg${get_arg}: mavlink_message_t): ${return_type}; inline;
-begin
-    Result := msg.payload[${wire_offset}];
-end;
-}}
-*)
 
 (**
  * @brief Decode a ${name_lower} message into a struct
@@ -314,19 +276,11 @@ procedure mavlink_msg_${name_lower}_decode(msg: mavlink_message_t; var ${name_lo
 var
 	len: uint8;
 begin
-(*
-{$if MAVLINK_NEED_BYTE_SWAP || !MAVLINK_ALIGNED_FIELDS
-${{ordered_fields:    ${decode_left}mavlink_msg_${name_lower}_get_${name}(msg${decode_right});
-}}
-{$ELSE}
-*)
-		if (msg.len < MAVLINK_MSG_ID_${name}_LEN) then
-			len := msg.len
-		else len:= MAVLINK_MSG_ID_${name}_LEN;
-        FillChar(${name_lower}, MAVLINK_MSG_ID_${name}_LEN, 0);
-		move(msg.payload[0], ${name_lower}, len);
-//    memcpy(${name_lower}, msg.payload[0], len);
-//{$IFEND}
+    if (msg.len < MAVLINK_MSG_ID_${name}_LEN) then
+        len := msg.len
+    else len:= MAVLINK_MSG_ID_${name}_LEN;
+    FillChar(${name_lower}, MAVLINK_MSG_ID_${name}_LEN, 0);
+    move(msg.payload[0], ${name_lower}, len);
 end;
 
 end.
@@ -363,7 +317,7 @@ def generate_one(basename, xml):
     directory = basename#os.path.join(basename, xml.basename)
 
     print("Generating Delphi implementation in directory %s" % directory)
-    mavparse_delphi.mkdir_p(directory)
+    mavparse.mkdir_p(directory)
 
     if xml.little_endian:
         xml.mavlink_endian = "MAVLINK_LITTLE_ENDIAN"
