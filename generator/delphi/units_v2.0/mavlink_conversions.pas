@@ -1,13 +1,31 @@
 unit mavlink_conversions;
 
 interface
-   uses uCopterData, mavlink_types, Math;
+   uses Math;
 type
+  TQuaternion = record
+  case a: byte of
+    0: (
+          q0: Single;
+          q1: Single;
+          q2: Single;
+          q3: Single;
+       );
+    1: (q: array[0..3] of Single;)
+  end;
   TDCMmatrix = array[0..2,0..2] of Single;
+
+procedure mavlinkQuaternionToDcm(quaternion:TQuaternion ; var dcm:TDCMmatrix);
+procedure mavlinkDcmToEuler(dcm:TDCMmatrix; var roll:Single; var pitch:Single; var yaw:Single);
+procedure mavlinkQuaternionToEuler(quaternion : TQuaternion; var roll:Single; var pitch:Single; var yaw:Single);
+procedure mavlinkEulerToQuaternion(roll:Single; pitch:Single; yaw:Single;var quaternion:TQuaternion);
+procedure mavlinkDcmToQuaternion(dcm:TDCMmatrix; var quaternion:TQuaternion);
+procedure mavlinkEulerToDcm(roll:Single; pitch:Single; yaw:Single;var dcm:TDCMmatrix);
+
 
 implementation
 
-procedure mavlink_quaternion_to_dcm(quaternion:TQuaternion ; var dcm:TDCMmatrix);
+procedure mavlinkQuaternionToDcm(quaternion:TQuaternion ; var dcm:TDCMmatrix);
    var a,b,c,d,aSq,bSq,cSq,dSq : Double;
    begin
       a := quaternion.q0;
@@ -30,7 +48,7 @@ procedure mavlink_quaternion_to_dcm(quaternion:TQuaternion ; var dcm:TDCMmatrix)
    end;
 
 
-procedure mavlink_dcm_to_euler(dcm:TDCMmatrix; var roll:Single; var pitch:Single; var yaw:Single);
+procedure mavlinkDcmToEuler(dcm:TDCMmatrix; var roll:Single; var pitch:Single; var yaw:Single);
     var phi, theta, psi : Single;
     begin
       theta := ArcSin(-dcm[2,0]);
@@ -58,14 +76,14 @@ procedure mavlink_dcm_to_euler(dcm:TDCMmatrix; var roll:Single; var pitch:Single
       yaw := psi;
     end;
 
-procedure mavlink_quaternion_to_euler(quaternion : TQuaternion; var roll:Single; var pitch:Single; var yaw:Single);
+procedure mavlinkQuaternionToEuler(quaternion : TQuaternion; var roll:Single; var pitch:Single; var yaw:Single);
     var dcm : TDCMmatrix;
     begin
-        mavlink_quaternion_to_dcm(quaternion, dcm);
-        mavlink_dcm_to_euler(dcm, roll, pitch, yaw);
+        mavlinkQuaternionToDcm(quaternion, dcm);
+        mavlinkDcmToEuler(dcm, roll, pitch, yaw);
     end;
 
-procedure mavlink_euler_to_quaternion(roll:Single; pitch:Single; yaw:Single;var quaternion:TQuaternion);
+procedure mavlinkEulerToQuaternion(roll:Single; pitch:Single; yaw:Single;var quaternion:TQuaternion);
     var cosPhi_2,sinPhi_2,cosTheta_2,sinTheta_2,cosPsi_2,sinPsi_2 :  Single;
     begin
        cosPhi_2 := Cos(roll / 2);
@@ -84,7 +102,7 @@ procedure mavlink_euler_to_quaternion(roll:Single; pitch:Single; yaw:Single;var 
             sinPhi_2 * sinTheta_2 * cosPsi_2);
     end;
 
-procedure mavlink_dcm_to_quaternion(dcm:TDCMmatrix; var quaternion:TQuaternion);
+procedure mavlinkDcmToQuaternion(dcm:TDCMmatrix; var quaternion:TQuaternion);
   var s,tr : Single;
       dcm_i,i,dcm_j,dcm_k : Integer;
   begin
@@ -119,7 +137,7 @@ procedure mavlink_dcm_to_quaternion(dcm:TDCMmatrix; var quaternion:TQuaternion);
       end;
   end;
 
-procedure mavlink_euler_to_dcm(roll:Single; pitch:Single; yaw:Single;var dcm:TDCMmatrix);
+procedure mavlinkEulerToDcm(roll:Single; pitch:Single; yaw:Single;var dcm:TDCMmatrix);
   var cosPhi,sinPhi,cosThe,sinThe,cosPsi,sinPsi : Single;
   Begin
       cosPhi := Cos(roll);

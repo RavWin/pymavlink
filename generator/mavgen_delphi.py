@@ -21,15 +21,16 @@ class msgs(object):
 msg = msgs()
 message_crcs = []
 crc_list = ''
+
 def generate_version_pas(directory, xml):
     '''generate version.pas'''
-    f = open(os.path.join(directory, "version.pas"), mode='w')
+    f = open(os.path.join(directory, "mavlink_"+xml.basename+"_version.pas"), mode='w')
     t.write(f,'''
 (** @file
  *  @brief MAVLink comm protocol built from ${basename}.xml
  *  @see http://mavlink.org
  *)
-unit version;
+unit mavlink_${basename}_version;
 interface
 
 const
@@ -55,70 +56,207 @@ ${{message:	mavlink_msg_${name_lower},
 }}
 ''', xml)
     f.close()
-def generate_mavlink_crcs(directory, xml):
-    f = open(os.path.join(directory, 'mavlink_crcs.pas'), mode='w')
-    t.write(f, '''
-unit mavlink_crcs;
-
-interface
-
-//const
-//  MAVLINK_MESSAGE_CRCS: array[0..255] of byte = 
-//  (${message_crcs_array});
-
-implementation
-
-end.
-''', xml)
-    f.close()
 
 def generate_main_pas(directory, xml):
     '''generate main header per XML file'''
     f = open(os.path.join(directory, 'mavlink_'+xml.basename + ".pas"), mode='w')
     t.write(f, '''
-(** @file
+(** 
+ *  @file
  *  @brief MAVLink comm protocol generated from ${basename}.xml
  *  @see http://mavlink.org
  *)
 unit mavlink_${basename};
+{$define MAVLINK_ENABLED_${basename_upper}}
+
 interface
+
 uses 
-	mavlink;
-// MESSAGE LENGTHS AND CRCS
+    mavlink, mavlink_msg_${basename};
+    // MESSAGE LENGTHS AND CRCS
 
 const
-	MAVLINK_MESSAGE_CRCS: TCrcArray = 
-	(${message_crcs_array});
-	MAVLINK_MESSAGE_LENGTHS: TCrcArray = 
-	(${message_lengths_array});
+    MAVLINK_MESSAGE_CRCS: TCrcArray = 
+        (${message_crcs_array});
+    MAVLINK_MESSAGE_LENGTHS: TCrcArray = 
+        (${message_lengths_array});
 
-{$define MAVLINK_ENABLED_${basename_upper}}
-	MAVLINK_VERSION = ${version};
+    MAVLINK_${basename_upper}_VERSION = ${version};
 
-// MESSAGE DEFINITIONS
-${{message:	MAVLINK_MSG_ID_${name} = ${id};
+    // MESSAGE DEFINITIONS
+${{message:    MAVLINK_MSG_ID_${name} = ${id};
 }}
 
 	
-// ENUM DEFINITIONS
 type
+// ENUM DEFINITIONS
 ${{enum:
 (** @brief ${description} *)
 ${name}=
 (
-${{entry:   ${name}=${value},  { ${description}${{param:|}} } 
+${{entry:    ${name}=${value},  { ${description} |${{param:${description}|}} } 
 }}
-   ${name}_DUMMY
+    ${name}_DUMMY
 );
 }}
 
+const
+    Mavlink${basename_cap}Messages : array [0..${message_count}] of TMavlinkMessageClass =
+    (
+${{message:        TMavMsg${name_cap},
+}}
+        TMavlinkMessage
+    );
 
+type
+
+	TMavlink${basename_cap}Parser = class (TMavlinkParser)
+    public
+        class function msgClassByID(msgId: Word): TMavlinkMessageClass; override;
+    end;
+  
 implementation
+
+{ TMavlink${basename_cap}Parser }
+
+class function TMavlink${basename_cap}Parser.msgClassByID(
+  msgId: Word): TMavlinkMessageClass;
+var
+  I: Integer;
+begin
+    Result := TMavlinkMessage;
+    for I := Low(Mavlink${basename_cap}Messages) to High(Mavlink${basename_cap}Messages) do
+        if Mavlink${basename_cap}Messages[i].msgInfo.msgId = msgId then begin
+            Result := Mavlink${basename_cap}Messages[i];
+            exit;
+        end;
+end;
 
 end.
 ''', xml)
     f.close()
-            
+
+def generate_messages_header(directory, xml):
+    f = open(os.path.join(directory, 'mavlink_msg_%s.pas' % xml.basename), mode='w')
+    t.write(f, ''' 
+unit mavlink_msg_${basename};
+// MAVLink messages generated from ${basename}.xml
+
+interface
+
+uses 
+    mavlink, SysUtils;
+''', xml)
+    f.close()
+
+def generate_messages_interface(directory, m):
+    '''generate per-message header for a XML file'''
+    f = open(os.path.join(directory, 'mavlink_msg_%s.pas') % m.basename, mode='a')
+    for msg in m.message:
+        t.write(f, ''' 
+{================= ${name} ================}
+const
+    MAVLINK_MSG_ID_${name} = ${id};
+    MAVLINK_MSG_ID_${name}_LEN = ${wire_length};
+    MAVLINK_MSG_ID_${name}_MIN_LEN = ${wire_min_length};
+    MAVLINK_MSG_ID_${id}_LEN = ${wire_length};
+    MAVLINK_MSG_ID_${id}_MIN_LEN = ${wire_min_length};
+
+    MAVLINK_MSG_ID_${name}_CRC = ${crc_extra};
+    MAVLINK_MSG_ID_${id}_CRC = ${crc_extra};
+
+type
+
+    mavlink_${name_lower}_t = packed record
+    ${{ordered_fields:    ${name}${array_suffix} ${type}; (*< ${description}*)
+    }}
+    end;
+
+    TMavMsg${name_cap}=class(TMavlinkmessage)
+    public
+        class function msgInfo: TMavlinkMessageInfo; override;
+        class function msgFields: TMavlinkMsgFields; override;
+
+        class function pack(system_id: uint8_t; component_id: uint8_t; 
+            var msg: mavlink_message_t${{arg_fields:; 
+            ${array_prefix}${name}:${array_const}}}):uint16;
+        class function encode(system_id: uint8_t; component_id: uint8_t; 
+            var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16;
+        class procedure decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t);
+    end;
+''', msg)
+    f.close()
+
+def generate_messages_implementation(directory, m):
+    '''generate per-message header for a XML file'''
+    f = open(os.path.join(directory, 'mavlink_msg_%s.pas') % m.basename, mode='a')
+    t.write(f, '''
+implementation
+    ''') 
+    for msg in m.message:
+        t.write(f, ''' 
+{ TMavMsg${name_cap} }
+
+class function TMavMsg${name_cap}.msgInfo: TMavlinkMessageInfo;
+begin
+    Result.msgId := ${id};
+    Result.msgName := '${name}';
+    Result.msgSize := ${wire_length};
+    Result.msgFieldCount := ${num_fields};
+end;
+
+class function TMavMsg${name_cap}.msgFields: TMavlinkMsgFields;
+const
+    fields: array [0..${num_fields}] of TMavlinkFieldInfo =
+    (
+        ${{ordered_fields: ( name: '${name}'; mType: MAVLINK_TYPE_${type_upper}; array_length: ${array_length}; wire_offset: ${wire_offset} ), 
+        }} ( name: 'DUMMY'; mType: MAVLINK_TYPE_INT64_T; array_length: 0; wire_offset: 0 )
+    );
+var
+    i: integer;
+begin
+    SetLength(Result, ${num_fields}); 
+    for i := 0 to ${num_fields}-1 do Result[i] := fields[i];
+end;
+
+class function TMavMsg${name_cap}.pack(system_id: uint8_t; component_id: uint8_t; 
+    var msg: mavlink_message_t${{arg_fields:; 
+    ${array_prefix}${name}:${array_const}}}):uint16;
+var
+	packet: mavlink_${name_lower}_t;
+begin
+${{scalar_fields:    packet.${name} := ${putname};
+}}
+${{array_fields:    move(${name}, packet.${name}, sizeof(${type})*${array_length});
+}}
+    move(packet, msg.payload[0], MAVLINK_MSG_ID_${name}_LEN);
+
+    msg.msgid := MAVLINK_MSG_ID_${name};
+    Result := mavlink_finalize_message(msg, system_id, component_id, MAVLINK_MSG_ID_${name}_MIN_LEN, MAVLINK_MSG_ID_${name}_LEN, MAVLINK_MSG_ID_${name}_CRC);
+end;
+
+class function TMavMsg${name_cap}.encode(system_id: uint8_t; component_id: uint8_t; 
+    var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16;
+begin
+    Result := Pack(system_id, component_id, msg,${{arg_fields: 
+        ${name_lower}.${name},}});
+end;
+
+class procedure TMavMsg${name_cap}.decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t);
+var
+	len: uint8;
+begin
+    if (msg.len < MAVLINK_MSG_ID_${name}_LEN) then
+        len := msg.len
+    else len:= MAVLINK_MSG_ID_${name}_LEN;
+    FillChar(${name_lower}, MAVLINK_MSG_ID_${name}_LEN, 0);
+    move(msg.payload[0], ${name_lower}, len);
+end;
+''', msg)
+    t.write(f, '''
+end.
+    ''') 
+    f.close()
 
 def generate_message_pas(directory, m):
     '''generate per-message header for a XML file'''
@@ -126,55 +264,115 @@ def generate_message_pas(directory, m):
     t.write(f, '''
 unit mavlink_msg_${name_lower};
 // ${name} MESSAGE
+
 interface
+
 uses 
-	mavlink, SysUtils;
+    mavlink, SysUtils;
 	
-const MAVLINK_MSG_ID_${name} = ${id};
+const 
+    MAVLINK_MSG_ID_${name} = ${id};
+    MAVLINK_MSG_ID_${name}_LEN = ${wire_length};
+    MAVLINK_MSG_ID_${name}_MIN_LEN = ${wire_min_length};
+    MAVLINK_MSG_ID_${id}_LEN = ${wire_length};
+    MAVLINK_MSG_ID_${id}_MIN_LEN = ${wire_min_length};
+
+    MAVLINK_MSG_ID_${name}_CRC = ${crc_extra};
+    MAVLINK_MSG_ID_${id}_CRC = ${crc_extra};
 
 type
 
-mavlink_${name_lower}_t = packed record
-${{ordered_fields:    ${name}${array_suffix} ${type}; (*< ${description}*)
-}}
-end;
+    mavlink_${name_lower}_t = packed record
+    ${{ordered_fields:    ${name}${array_suffix} ${type}; (*< ${description}*)
+    }}
+    end;
 
-const
-	MAVLINK_MSG_ID_${name}_LEN = ${wire_length};
-	MAVLINK_MSG_ID_${name}_MIN_LEN = ${wire_min_length};
-	MAVLINK_MSG_ID_${id}_LEN = ${wire_length};
-	MAVLINK_MSG_ID_${id}_MIN_LEN = ${wire_min_length};
+    TMavMsg${name_cap}=class(TMavlinkmessage)
+    public
+        class function msgInfo: TMavlinkMessageInfo; override;
+        class function msgFields: TMavlinkMsgFields; override;
 
-	MAVLINK_MSG_ID_${name}_CRC = ${crc_extra};
-	MAVLINK_MSG_ID_${id}_CRC = ${crc_extra};
+        class function pack(system_id: uint8_t; component_id: uint8_t; 
+            var msg: mavlink_message_t${{arg_fields:; 
+            ${array_prefix}${name}:${array_const}}}):uint16;
+        class function encode(system_id: uint8_t; component_id: uint8_t; 
+            var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16;
+        class procedure decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t);
+    end;
 
-${{array_fields:MAVLINK_MSG_${msg_name}_FIELD_${name_upper}_LEN = ${array_length};
-}}
-(*
-#define MAVLINK_MESSAGE_INFO_${name} { \\
-    ${id}, \\
-    "${name}", \\
-    ${num_fields}, \\
-    { ${{ordered_fields: { "${name}", ${c_print_format}, MAVLINK_TYPE_${type_upper}, ${array_length}, ${wire_offset}, offsetof(mavlink_${name_lower}_t, ${name}) }, \\
-      }}
-    } \\
-}
-*)
-
-function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; var msg: mavlink_message_t${{arg_fields:; 
-                                    ${array_prefix}${name}:${array_const}}}):uint16;
+function mavlink_msg_${name_lower}_pack(system_id: uint8_t; component_id: uint8_t; 
+    var msg: mavlink_message_t${{arg_fields:; 
+    ${array_prefix}${name}:${array_const}}}):uint16;
 function mavlink_msg_${name_lower}_pack_chan(system_id: uint8_t; component_id: uint8_t; 
-									chan: uint8_t;
-									msg: mavlink_message_t${{arg_fields:; 
-									${array_prefix}${name}:${array_const}}}):uint16;
+    chan: uint8_t;
+    var msg: mavlink_message_t${{arg_fields:; 
+    ${array_prefix}${name}:${array_const}}}):uint16;
 function mavlink_msg_${name_lower}_encode(system_id: uint8_t; component_id: uint8_t; 
-									msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
+    var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 function mavlink_msg_${name_lower}_encode_chan(system_id: uint8_t; component_id: uint8_t; 
-									chan: uint8;
-									msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
+    chan: uint8;
+    var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 procedure mavlink_msg_${name_lower}_decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t); inline;
 
 implementation
+
+{ TMavMsg${name_cap} }
+
+class function TMavMsg${name_cap}.msgInfo: TMavlinkMessageInfo;
+begin
+    Result.msgId := ${id};
+    Result.msgName := '${name}';
+    Result.msgSize := ${wire_length};
+    Result.msgFieldCount := ${num_fields};
+end;
+
+class function TMavMsg${name_cap}.msgFields: TMavlinkMsgFields;
+const
+    fields: array [0..${num_fields}] of TMavlinkFieldInfo =
+    (
+        ${{ordered_fields: ( name: '${name}'; mType: MAVLINK_TYPE_${type_upper}; array_length: ${array_length}; wire_offset: ${wire_offset} ), 
+        }} ( name: 'DUMMY'; mType: MAVLINK_TYPE_INT64_T; array_length: 0; wire_offset: 0 )
+    );
+var
+    i: integer;
+begin
+    SetLength(Result, ${num_fields}); 
+    for i := 0 to ${num_fields}-1 do Result[i] := fields[i];
+end;
+
+class function TMavMsg${name_cap}.pack(system_id: uint8_t; component_id: uint8_t; 
+    var msg: mavlink_message_t${{arg_fields:; 
+    ${array_prefix}${name}:${array_const}}}):uint16;
+var
+	packet: mavlink_${name_lower}_t;
+begin
+${{scalar_fields:    packet.${name} := ${putname};
+}}
+${{array_fields:    move(${name}, packet.${name}, sizeof(${type})*${array_length});
+}}
+    move(packet, msg.payload[0], MAVLINK_MSG_ID_${name}_LEN);
+
+    msg.msgid := MAVLINK_MSG_ID_${name};
+    Result := mavlink_finalize_message(msg, system_id, component_id, MAVLINK_MSG_ID_${name}_MIN_LEN, MAVLINK_MSG_ID_${name}_LEN, MAVLINK_MSG_ID_${name}_CRC);
+end;
+
+class function TMavMsg${name_cap}.encode(system_id: uint8_t; component_id: uint8_t; 
+    var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16;
+begin
+    Result := Pack(system_id, component_id, msg,${{arg_fields: 
+        ${name_lower}.${name},}});
+end;
+
+class procedure TMavMsg${name_cap}.decode(msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t);
+var
+	len: uint8;
+begin
+    if (msg.len < MAVLINK_MSG_ID_${name}_LEN) then
+        len := msg.len
+    else len:= MAVLINK_MSG_ID_${name}_LEN;
+    FillChar(${name_lower}, MAVLINK_MSG_ID_${name}_LEN, 0);
+    move(msg.payload[0], ${name_lower}, len);
+end;
 
 (**
  * @brief Pack a ${name_lower} message
@@ -215,7 +413,7 @@ ${{arg_fields: * @param ${name} ${description}
  *)
 function mavlink_msg_${name_lower}_pack_chan(system_id: uint8_t; component_id: uint8_t; 
 									chan: uint8_t;
-									msg: mavlink_message_t${{arg_fields:; 
+									var msg: mavlink_message_t${{arg_fields:; 
 									${array_prefix}${name}:${array_const}}}):uint16;
 var
 	packet: mavlink_${name_lower}_t;
@@ -241,7 +439,7 @@ end;
  * @param ${name_lower} C-struct to read the message contents from
  *)
 function mavlink_msg_${name_lower}_encode(system_id: uint8_t; component_id: uint8_t; 
-									msg: mavlink_message_t; var ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
+									var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 begin
     Result := mavlink_msg_${name_lower}_pack(system_id, component_id, msg,${{arg_fields: 
         ${name_lower}.${name},}});
@@ -258,7 +456,7 @@ end;
  *)
 function mavlink_msg_${name_lower}_encode_chan(system_id: uint8_t; component_id: uint8_t; 
 									chan: uint8;
-									msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
+									var msg: mavlink_message_t; ${name_lower}: mavlink_${name_lower}_t ):Uint16; inline;
 begin
     Result := mavlink_msg_${name_lower}_pack_chan(system_id, component_id, chan, msg,${{arg_fields: 
         ${name_lower}.${name},}});
@@ -466,18 +664,20 @@ def generate_one(basename, xml):
             else:
                 f.putname = f.const_value
 
-    generate_mavlink_msg_inc(directory, xml)
+    # generate_mavlink_msg_inc(directory, xml)
     generate_main_pas(directory, xml)
-    for m in xml.message:
-        generate_message_pas(directory, m)
+    # for m in xml.message:
+    #     generate_message_pas(directory, m)
+
+    generate_messages_header(directory, xml)
+    generate_messages_interface(directory, xml)
+    generate_messages_implementation(directory, xml)
 #    generate_testsuite_h(directory, xml)
 
 
 def generate(basename, xml_list):
     '''generate complete MAVLink Delphi implemenation'''
 
-    # crc = 0
-    # message_crcs = []
     id = 0;
     crclist = ''
     while id<256:
@@ -487,14 +687,11 @@ def generate(basename, xml_list):
         xml = xml_list[idx]
         xml.xml_idx = idx
         generate_one(basename, xml)
+        generate_version_pas(basename, xml)
     for msgid in range(256):
         # if not xml.message_crcs[msgid]:
         crc = message_crcs[msgid]
         crclist += '%u, ' % crc			
     # crclist = crclist[:-2]# xml.message_crcs_array = message_crcs;
-    xml.message_crcs_array = crclist[:-2]
     #generate_mavlink_crcs(basename, xml)
-    # print(xml.message_crcs_array)# crc = 0#xml.message_crcs[msgid]
-    # print(crclist)# crc = 0#xml.message_crcs[msgid]
-    generate_version_pas(basename, xml)
     copy_fixed_headers(basename, xml_list[0])
